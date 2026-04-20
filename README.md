@@ -137,7 +137,6 @@ npm run dev
 
 ## 📈 Roadmap & Future Enhancements
 - [ ] **OAuth Integrations**: Add Google & GitHub one-click login for streamlined onboarding.
-- [ ] **Voice-to-Text Interface**: Interactive voice inputs via the Web Speech API.
 - [ ] **Data Export Pipelines**: Allow users to export long-form chat histories into nicely formatted PDF/Markdown files.
 
 ---
