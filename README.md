@@ -26,8 +26,8 @@
 ## 🔗 Live Links
 | Feature | Link |
 | --- | --- |
-| 🌐 **Live Demo (Frontend)** | [https://use-promptstack.vercel.app](https://use-promptstack.vercel.app) |
-| ⚙️ **API Server (Backend)** | [https://quick-gpt-server-neon.vercel.app](https://quick-gpt-server-neon.vercel.app) |
+| 🌐 **Live Demo (Frontend)** | https://promptstack-ai.vercel.app
+| ⚙️ **API Server (Backend)** |  https://promptstack-server.vercel.app
 
 ---
 
