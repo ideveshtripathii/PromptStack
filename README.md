@@ -27,7 +27,7 @@
 | Feature | Link |
 | --- | --- |
 | 🌐 **Live Demo (Frontend)** | https://promptstack-ai.vercel.app
-| ⚙️ **API Server (Backend)** |  https://promptstack-server.vercel.app
+| ⚙️ **API Server (Backend)** |  https://prompt-stack-server.vercel.app
 
 ---
 
