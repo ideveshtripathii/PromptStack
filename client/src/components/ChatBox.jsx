@@ -118,7 +118,10 @@ const ChatBox = () => {
          spokenTextRef.current = combined;
       }
     };
-    recognition.onerror = () => setIsListening(false);
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      toast.error("Voice recognition error: " + event.error);
+    };
     recognition.onend = () => {
       setIsListening(false);
       // Auto-submit when user stops talking manually or pauses for a long time
@@ -132,13 +135,20 @@ const ChatBox = () => {
   };
 
   const stopVoice = () => {
-    window.speechSynthesis.cancel();
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
     setIsSpeaking(false);
   };
 
   const sendMessage = async (textToSubmit) => {
     if(!user) return toast('Login to send message')
     if(!textToSubmit || !textToSubmit.trim()) return
+
+    // Warm up speech synthesis engine on user interaction to bypass browser blocks
+    if (window.speechSynthesis) {
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    }
 
     setLoading(true)
     const promptCopy = textToSubmit

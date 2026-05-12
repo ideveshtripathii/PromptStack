@@ -24,7 +24,7 @@ export const createChat = async (req, res) => {
 export const getChats = async (req, res) => {
     try {
         const userId = req.user._id
-        const chats = await Chat.find({userId}).sort({ updatedAt: -1 })
+        const chats = await Chat.find({userId}, { 'messages.embedding': 0 }).sort({ updatedAt: -1 })
         
         res.json({success: true, chats})
     } catch (error) {

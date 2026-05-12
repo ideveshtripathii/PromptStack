@@ -28,13 +28,25 @@ export const textMessageController = async (req, res) => {
 
         const {chatId, prompt, socketId} = req.body
 
-        const chat = await Chat.findOne({userId, _id: chatId})
+        // Redis Active Chat Cache
+        const chatCacheKey = `chat:${chatId}`;
+        let chatStr = await redisClient.get(chatCacheKey);
+        let chat;
+        
+        if (chatStr) {
+            chat = JSON.parse(chatStr);
+        } else {
+            chat = await Chat.findOne({userId, _id: chatId}).lean();
+            if (chat) await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
+        }
+
+        if (!chat) return res.json({success: false, message: "Chat not found"});
 
         const cacheKey = `prompt:${prompt.trim().toLowerCase()}`;
         const cachedResponse = await redisClient.get(cacheKey);
 
         if (cachedResponse) {
-            chat.messages.push({role: "user", content: prompt, timestamp: Date.now(), isImage: false, embedding: []})
+            const userMsg = {role: "user", content: prompt, timestamp: Date.now(), isImage: false, embedding: []};
             
             res.json({success: true, isStreaming: true});
             const currentMessageId = Date.now();
@@ -44,8 +56,15 @@ export const textMessageController = async (req, res) => {
                 setTimeout(async () => {
                    io.to(socketId).emit("message-chunk", { chunk: cachedResponse, messageId: currentMessageId });
                    const reply = { role: "assistant", content: cachedResponse, timestamp: Date.now(), isImage: false, embedding: [] };
-                   chat.messages.push(reply);
-                   await chat.save();
+                   
+                   await Chat.updateOne({userId, _id: chatId}, {
+                       $push: { messages: { $each: [userMsg, reply] } }
+                   });
+                   
+                   // Update Active Chat Cache
+                   chat.messages.push(userMsg, reply);
+                   await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
+                   
                    await User.updateOne({_id: userId}, {$inc: {credits: -1}});
                    await redisClient.del(`user:${userId}`); // Clear user credit cache
                    io.to(socketId).emit("message-end", { messageId: currentMessageId, reply });
@@ -66,12 +85,13 @@ export const textMessageController = async (req, res) => {
             console.log("Embedding generation failed:", e.message);
         }
 
-        chat.messages.push({role: "user", content: prompt, timestamp: Date.now(), isImage: false, embedding: promptEmbedding})
+        const userMsg = {role: "user", content: prompt, timestamp: Date.now(), isImage: false, embedding: promptEmbedding};
+        chat.messages.push(userMsg);
 
         res.json({success: true, isStreaming: true})
 
-        // Semantic Search Context & Last N Messages
-        const N_MESSAGES = 10;
+        // Semantic Search Context & Last N Messages (Send Only Recent Messages to AI)
+        const N_MESSAGES = 5;
         const otherMessages = chat.messages.slice(0, -N_MESSAGES);
         let relevantMessages = [];
         
@@ -133,8 +153,14 @@ export const textMessageController = async (req, res) => {
         await redisClient.setEx(cacheKey, 86400 * 7, fullResponse); // Cache prompt for 7 days
 
         const reply = { role: "assistant", content: fullResponse, timestamp: Date.now(), isImage: false, embedding: replyEmbedding }
-        chat.messages.push(reply)
-        await chat.save()
+        await Chat.updateOne({userId, _id: chatId}, {
+            $push: { messages: { $each: [userMsg, reply] } }
+        });
+        
+        // Update Active Chat Cache
+        chat.messages.push(reply);
+        await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
+        
         await User.updateOne({_id: userId}, {$inc: {credits: -1}})
         await redisClient.del(`user:${userId}`); // Clear user credit cache
 
@@ -158,36 +184,55 @@ export const imageMessageController = async (req, res) => {
             return res.json({success: false, message: "You don't have enough credits to use this feature"})
         }
         const {prompt, chatId, isPublished} = req.body
-        // Find chat
-        const chat = await Chat.findOne({userId, _id: chatId})
+        
+        // Redis Active Chat Cache
+        const chatCacheKey = `chat:${chatId}`;
+        let chatStr = await redisClient.get(chatCacheKey);
+        let chat;
+        
+        if (chatStr) {
+            chat = JSON.parse(chatStr);
+        } else {
+            chat = await Chat.findOne({userId, _id: chatId}).lean();
+            if (chat) await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
+        }
+
+        if (!chat) return res.json({success: false, message: "Chat not found"});
 
         const cacheKey = `img_prompt:${prompt.trim().toLowerCase()}`;
         const cachedImageUrl = await redisClient.get(cacheKey);
 
         if (cachedImageUrl) {
-            chat.messages.push({ role: "user", content: prompt, timestamp: Date.now(), isImage: false });
+            const userMsg = { role: "user", content: prompt, timestamp: Date.now(), isImage: false };
             const reply = { role: 'assistant', content: cachedImageUrl, timestamp: Date.now(), isImage: true, isPublished };
-            chat.messages.push(reply);
-            await chat.save();
+            await Chat.updateOne({userId, _id: chatId}, {
+                $push: { messages: { $each: [userMsg, reply] } }
+            });
+            
+            // Update Active Chat Cache
+            chat.messages.push(userMsg, reply);
+            await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
+            
             await User.updateOne({_id: userId}, {$inc: {credits: -2}});
             await redisClient.del(`user:${userId}`); // Clear user credit cache
             return res.json({success: true, reply});
         }
 
-         // Push user message
-         chat.messages.push({
+         // Create user message object
+         const userMsg = {
             role: "user", 
             content: prompt, 
             timestamp: Date.now(), 
-            isImage: false});
+            isImage: false
+         };
 
         // Encode the prompt
         const encodedPrompt = encodeURIComponent(prompt)
 
-        // Construct ImageKit AI generation URL
-        const generatedImageUrl = `${process.env.IMAGEKIT_URL_ENDPOINT}/ik-genimg-prompt-${encodedPrompt}/promptstack/${Date.now()}.png?tr=w-800,h-800`;
+        // Construct AI generation URL using Pollinations AI
+        const generatedImageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=800&height=800&nologo=true`;
 
-        // Trigger generation by fetching from ImageKit
+        // Trigger generation by fetching from Pollinations AI
         const aiImageResponse = await axios.get(generatedImageUrl, {responseType: "arraybuffer"})
 
         // Convert to Base64
@@ -210,8 +255,13 @@ export const imageMessageController = async (req, res) => {
 
          await redisClient.setEx(cacheKey, 86400 * 30, uploadResponse.url); // Cache image for 30 days
 
-         chat.messages.push(reply)
-         await chat.save()
+         await Chat.updateOne({userId, _id: chatId}, {
+             $push: { messages: { $each: [userMsg, reply] } }
+         });
+
+         // Update Active Chat Cache
+         chat.messages.push(userMsg, reply);
+         await redisClient.setEx(chatCacheKey, 3600, JSON.stringify(chat));
 
           await User.updateOne({_id: userId}, {$inc: {credits: -2}})
           await redisClient.del(`user:${userId}`); // Clear user credit cache
