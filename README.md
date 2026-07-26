@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>🚀 PromptStack</h1>
+  <h1>🚀 PromptStack (AI SaaS Platform)</h1>
   <h3>Next-Generation AI Assistant & Image Generation Platform</h3>
   
   <p align="center">
